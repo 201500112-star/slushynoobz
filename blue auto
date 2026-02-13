@@ -1,1 +1,239 @@
+package org.firstinspires.ftc.teamcode;
 
+import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
+import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.hardware.DcMotorSimple;
+import com.qualcomm.robotcore.util.ElapsedTime;
+import org.firstinspires.ftc.robotcore.external.hardware.camera.WebcamName;
+import org.openftc.easyopencv.OpenCvCamera;
+import org.openftc.easyopencv.OpenCvCameraFactory;
+import org.openftc.easyopencv.OpenCvCameraRotation;
+import com.qualcomm.robotcore.hardware.Servo;
+
+@Autonomous(name = "Blue Auto - Limelight AprilTag", group = "Autonomous")
+public class BlueAutoWithLimelight extends LinearOpMode {
+
+    // Drive motors (Mecanum)
+    private DcMotor frontLeftMotor;
+    private DcMotor frontRightMotor;
+    private DcMotor backLeftMotor;
+    private DcMotor backRightMotor;
+
+    // Feeder and launcher motors
+    private DcMotor feederMotor;
+    private DcMotor topLauncherMotor;
+    private DcMotor bottomLauncherMotor;
+
+    // Limelight camera
+    private OpenCvCamera camera;
+    private LimelightAprilTagProcessor limelightProcessor;
+
+    // Timer
+    private ElapsedTime runtime = new ElapsedTime();
+
+    @Override
+    public void runOpMode() throws InterruptedException {
+        // Initialize drive motors
+        frontLeftMotor = hardwareMap.get(DcMotor.class, "frontLeftMotor");
+        frontRightMotor = hardwareMap.get(DcMotor.class, "frontRightMotor");
+        backLeftMotor = hardwareMap.get(DcMotor.class, "backLeftMotor");
+        backRightMotor = hardwareMap.get(DcMotor.class, "backRightMotor");
+
+        // Initialize feeder and launcher motors
+        feederMotor = hardwareMap.get(DcMotor.class, "feederMotor");
+        topLauncherMotor = hardwareMap.get(DcMotor.class, "topLauncherMotor");
+        bottomLauncherMotor = hardwareMap.get(DcMotor.class, "bottomLauncherMotor");
+
+        // Set motor directions for Mecanum drive
+        frontLeftMotor.setDirection(DcMotorSimple.Direction.REVERSE);
+        frontRightMotor.setDirection(DcMotorSimple.Direction.FORWARD);
+        backLeftMotor.setDirection(DcMotorSimple.Direction.REVERSE);
+        backRightMotor.setDirection(DcMotorSimple.Direction.FORWARD);
+
+        // Set motor modes
+        setMotorMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+
+        // Initialize Limelight camera
+        initializeLimelight();
+
+        telemetry.addData("Status", "Initialized. Waiting for start...");
+        telemetry.update();
+
+        waitForStart();
+
+        if (opModeIsActive()) {
+            // Step 1: Scan field for blue goal using Limelight
+            telemetry.addData("Status", "Scanning for blue goal...");
+            telemetry.update();
+            scanForBlueGoal();
+
+            // Step 2: Drive to blue goal position
+            telemetry.addData("Status", "Moving to blue goal...");
+            telemetry.update();
+            driveToBlueGoal();
+
+            // Step 3: Start feeder motor at full speed
+            telemetry.addData("Status", "Starting feeder...");
+            telemetry.update();
+            feederMotor.setPower(1.0);
+            sleep(500); // Wait for feeder to reach full speed
+
+            // Step 4: Start launcher motors
+            telemetry.addData("Status", "Starting launchers...");
+            telemetry.update();
+            topLauncherMotor.setPower(1.0);
+            bottomLauncherMotor.setPower(1.0);
+
+            // Step 5: Hold and shoot
+            sleep(2000); // Allow time for shooting
+
+            // Step 6: Stop all motors
+            stopAllMotors();
+
+            telemetry.addData("Status", "Auto complete!");
+            telemetry.update();
+        }
+    }
+
+    /**
+     * Initialize Limelight camera for AprilTag detection
+     */
+    private void initializeLimelight() {
+        int cameraMonitorViewId = hardwareMap.appContext.getResources()
+                .getIdentifier("cameraMonitorViewId", "id", hardwareMap.appContext.getPackageName());
+        camera = OpenCvCameraFactory.getInstance()
+                .createWebcam(hardwareMap.get(WebcamName.class, "Webcam 1"), cameraMonitorViewId);
+
+        limelightProcessor = new LimelightAprilTagProcessor();
+        camera.setPipeline(limelightProcessor);
+        camera.openCameraDeviceAsync(new OpenCvCamera.AsyncCameraOpenListener() {
+            @Override
+            public void onOpened() {
+                camera.startStreaming(640, 480, OpenCvCameraRotation.UPRIGHT);
+            }
+
+            @Override
+            public void onError(int errorCode) {
+                telemetry.addData("Camera Error", "Code: " + errorCode);
+                telemetry.update();
+            }
+        });
+    }
+
+    /**
+     * Scan the field for blue goal using Limelight
+     */
+    private void scanForBlueGoal() {
+        runtime.reset();
+        
+        while (opModeIsActive() && runtime.seconds() < 3) { // Scan for up to 3 seconds
+            AprilTagData blueGoal = limelightProcessor.getClosestAprilTag();
+            
+            if (blueGoal != null && isBlueGoalTag(blueGoal.getId())) {
+                telemetry.addData("Blue Goal Found", "AprilTag ID: " + blueGoal.getId());
+                telemetry.addData("X Offset", blueGoal.getX());
+                telemetry.addData("Y Offset", blueGoal.getY());
+                telemetry.update();
+                break;
+            }
+            
+            telemetry.addData("Scanning...", "Looking for blue goal");
+            telemetry.update();
+            sleep(100);
+        }
+    }
+
+    /**
+     * Drive to the detected blue goal position
+     */
+    private void driveToBlueGoal() {
+        AprilTagData blueGoal = limelightProcessor.getClosestAprilTag();
+        
+        if (blueGoal != null && isBlueGoalTag(blueGoal.getId())) {
+            // Adjust position based on AprilTag offset
+            double xOffset = blueGoal.getX();
+            double yOffset = blueGoal.getY();
+            
+            // Strafe to align with goal (adjust X position)
+            if (Math.abs(xOffset) > 10) {
+                if (xOffset > 0) {
+                    strafeRight(0.5, 500); // Strafe right
+                } else {
+                    strafeLeft(0.5, 500);  // Strafe left
+                }
+            }
+            
+            // Move forward/backward to get distance (adjust Y position)
+            if (Math.abs(yOffset) > 10) {
+                if (yOffset > 0) {
+                    moveForward(0.5, 500); // Move forward
+                } else {
+                    moveBackward(0.5, 500); // Move backward
+                }
+            }
+        } else {
+            // Default position if blue goal not found
+            moveForward(0.7, 1000);
+        }
+    }
+
+    /**
+     * Check if the AprilTag ID corresponds to a blue goal
+     * DECODE blue goals are typically tags 11-15 (adjust based on your field setup)
+     */
+    private boolean isBlueGoalTag(int tagId) {
+        return tagId >= 11 && tagId <= 15; // Adjust IDs based on your field
+    }
+
+    /**
+     * Mecanum drive methods
+     */
+    private void moveForward(double power, long durationMs) {
+        setMotorPowers(power, power, power, power);
+        sleep(durationMs);
+        stopAllMotors();
+    }
+
+    private void moveBackward(double power, long durationMs) {
+        setMotorPowers(-power, -power, -power, -power);
+        sleep(durationMs);
+        stopAllMotors();
+    }
+
+    private void strafeLeft(double power, long durationMs) {
+        setMotorPowers(-power, power, power, -power);
+        sleep(durationMs);
+        stopAllMotors();
+    }
+
+    private void strafeRight(double power, long durationMs) {
+        setMotorPowers(power, -power, -power, power);
+        sleep(durationMs);
+        stopAllMotors();
+    }
+
+    private void setMotorPowers(double fl, double fr, double bl, double br) {
+        frontLeftMotor.setPower(fl);
+        frontRightMotor.setPower(fr);
+        backLeftMotor.setPower(bl);
+        backRightMotor.setPower(br);
+    }
+
+    private void stopAllMotors() {
+        setMotorPowers(0, 0, 0, 0);
+        feederMotor.setPower(0);
+        topLauncherMotor.setPower(0);
+        bottomLauncherMotor.setPower(0);
+    }
+
+    private void setMotorMode(DcMotor.RunMode mode) {
+        frontLeftMotor.setMode(mode);
+        frontRightMotor.setMode(mode);
+        backLeftMotor.setMode(mode);
+        backRightMotor.setMode(mode);
+        feederMotor.setMode(mode);
+        topLauncherMotor.setMode(mode);
+        bottomLauncherMotor.setMode(mode);
+    }
+}
