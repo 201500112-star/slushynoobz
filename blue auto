@@ -68,24 +68,24 @@ public class BlueAutoWithLimelight extends LinearOpMode {
             telemetry.update();
             scanForBlueGoal();
 
-            // Step 2: Drive to blue goal position
-            telemetry.addData("Status", "Moving to blue goal...");
+            // Step 2: stay 9'8'' away from blue goal
+            telemetry.addData("Status", "staying 9'8'' away from blue goal...");
             telemetry.update();
             driveToBlueGoal();
 
-            // Step 3: Start feeder motor at full speed
-            telemetry.addData("Status", "Starting feeder...");
-            telemetry.update();
-            feederMotor.setPower(1.0);
-            sleep(500); // Wait for feeder to reach full speed
-
-            // Step 4: Start launcher motors
+            // Step 3: Start launcher motors
             telemetry.addData("Status", "Starting launchers...");
             telemetry.update();
             topLauncherMotor.setPower(1.0);
             bottomLauncherMotor.setPower(1.0);
 
-            // Step 5: Hold and shoot
+            // Step 4: Start feeder motor at full speed
+            telemetry.addData("Status", "Starting feeder...");
+            telemetry.update();
+            feederMotor.setPower(1.0);
+            sleep(500); // Wait for feeder to reach full speed
+
+             // Step 5: Hold and shoot
             sleep(2000); // Allow time for shooting
 
             // Step 6: Stop all motors
